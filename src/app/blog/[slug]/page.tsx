@@ -1,0 +1,126 @@
+import { notFound } from "next/navigation";
+import { getAllPosts, getPostBySlug, SITE_URL } from "@/lib/posts";
+import { t } from "@/lib/i18n";
+import type { Metadata } from "next";
+import Link from "next/link";
+
+interface Props {
+  params: Promise<{ slug: string }>;
+}
+
+export async function generateStaticParams() {
+  return getAllPosts().map((post) => ({ slug: post.slug }));
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  // Try English first; fall back to Persian for Persian-only slugs
+  const post =
+    (await getPostBySlug(slug, "en")) ?? (await getPostBySlug(slug, "fa"));
+  if (!post) return {};
+
+  const hasBoth =
+    post.availableLangs.includes("en") && post.availableLangs.includes("fa");
+
+  const siteName = post.lang === "fa" ? t.fa.siteName : t.en.siteName;
+
+  const metadata: Metadata = {
+    title: `${post.title} — ${siteName}`,
+    description: post.summary,
+    alternates: {
+      canonical: `${SITE_URL}/blog/${slug}`,
+    },
+  };
+
+  if (hasBoth) {
+    metadata.alternates!.languages = {
+      en: `${SITE_URL}/blog/${slug}`,
+      fa: `${SITE_URL}/blog/${slug}/fa`,
+      "x-default": `${SITE_URL}/blog/${slug}`,
+    };
+  }
+
+  return metadata;
+}
+
+function formatDate(dateStr: string, lang: "en" | "fa") {
+  if (!dateStr) return "";
+  return new Date(dateStr).toLocaleDateString(
+    lang === "fa" ? "fa-IR" : "en-US",
+    { year: "numeric", month: "long", day: "numeric" }
+  );
+}
+
+export default async function PostPage({ params }: Props) {
+  const { slug } = await params;
+  // English is the canonical URL for this route; fall back to Persian-only posts
+  const post =
+    (await getPostBySlug(slug, "en")) ?? (await getPostBySlug(slug, "fa"));
+
+  if (!post) notFound();
+
+  const isRtl = post.lang === "fa";
+  const tr = isRtl ? t.fa : t.en;
+  const hasFaVersion =
+    post.lang === "en" && post.availableLangs.includes("fa");
+
+  return (
+    <div className="max-w-3xl mx-auto px-6 py-16">
+      {/* Back link — dir=ltr keeps the arrow stable regardless of UI direction */}
+      <Link
+        href="/blog"
+        dir="ltr"
+        className="text-sm text-gray-400 dark:text-gray-500 hover:text-[var(--foreground)] transition-colors mb-10 inline-block"
+      >
+        {tr.blog.backToBlog}
+      </Link>
+
+      {/* Language switcher — only shown when Persian version also exists */}
+      {hasFaVersion && (
+        <div className="flex items-center gap-2 mb-10 ms-4 inline-flex" dir="ltr">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-medium">
+            EN
+          </span>
+          <Link
+            href={`/blog/${slug}/fa`}
+            className="text-xs px-2 py-0.5 rounded-full border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
+          >
+            FA
+          </Link>
+        </div>
+      )}
+
+      <article dir={isRtl ? "rtl" : "ltr"}>
+        <header className="mb-10">
+          <div className="flex items-center gap-2 mb-3">
+            <time className="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+              {formatDate(post.date, post.lang)}
+            </time>
+          </div>
+
+          <h1 className="text-2xl font-bold tracking-tight leading-snug mb-4">
+            {post.title}
+          </h1>
+
+          {post.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {post.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </header>
+
+        <div
+          className="prose"
+          dangerouslySetInnerHTML={{ __html: post.contentHtml }}
+        />
+      </article>
+    </div>
+  );
+}
